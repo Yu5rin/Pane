@@ -918,6 +918,11 @@ const livePreview = ViewPlugin.fromClass(class {
     const marks = [];
     const quotedLines = new Set();
     const seenFences = new Set();
+    // 閉じたコードブロックの範囲(開始フェンス行の先頭〜閉じフェンス行の末尾)。下の行ごとの
+    // 記法解釈(見出し・区切り線・チェックボックス・強調表示など)はこの中で行わない。
+    // (2026-11 の総点検2。コードの「# comment」が見出しに、「---」が区切り線に、「- [ ]」が
+    //  チェックボックスに描かれ、記号が隠れてコードが読めなくなっていた)
+    const codeBlockRanges = [];
     const seenTables = new Set();
     const htmlTagNodes = []; // インラインHTML(M-27〜M-31)。ペアリングは木走査後にまとめて行う
     const toggles = state.field(extTogglesField, false) ?? DEFAULT_EXT_TOGGLES;
@@ -950,6 +955,7 @@ const livePreview = ViewPlugin.fromClass(class {
           const open = state.doc.lineAt(nf);
           const close = state.doc.lineAt(Math.max(nf, nt - 1));
           const blockLive = cursorInside(view, open.from, close.to);
+          codeBlockRanges.push({ from: open.from, to: close.to });
           marks.push({ from: open.from, to: close.to, deco: Decoration.mark({ class: "tok-codeblock" }) });
           // 行全体を塗るブロック背景(行デコレーション)。開始行にコピー用マーカーを付与。
           const showLineNumbers = toggles.codeBlockLineNumbers !== false; // 仕様 codeBlockLineNumbers、既定true
@@ -1257,6 +1263,12 @@ const livePreview = ViewPlugin.fromClass(class {
         }
         if (inMathBlock(line.from)) {
           // 数式ブロック内(mathBlockDecoFieldが描画を担当)は他の記法解釈をしない
+          if (line.to + 1 > to) break;
+          pos = line.to + 1;
+          continue;
+        }
+        if (codeBlockRanges.some((r) => line.from >= r.from && line.from <= r.to)) {
+          // コードブロック内(上のFencedCode処理が描画を担当)は他の記法解釈をしない
           if (line.to + 1 > to) break;
           pos = line.to + 1;
           continue;
@@ -5065,6 +5077,8 @@ export function createEditor(parent, { onChange, onFocus, onBlur, onCompositionC
     // マークダウン記法拡張のON/OFF(仕様書 第2.10節 C-01)。設定ダイアログでの変更を反映する。
     setExtensionToggles: (toggles) => view.dispatch({ effects: setExtToggles.of(toggles) }),
     getMode: () => currentMode,
+    // カーソルがコード(コードブロック・インラインコード・数式)の中にあるか。貼り付けの変換を止める判断に使う。
+    isCursorInCode: () => inCodeContext(view.state, view.state.selection.main.from),
     // ファイルを開いた際に拡張子から編集モードを切り替える(仕様書 第1章)。
     // markdown: 従来どおりライブプレビュー一式。code: 該当言語を動的ロードして
     // シンタックスハイライトのみ適用(ライブプレビュー装飾は外す)。plain: 装飾なし。

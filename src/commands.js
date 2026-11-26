@@ -1192,11 +1192,32 @@ export function initContextMenu(rootEl, ctx, resolveTree) {
 // captureフェーズはターゲット(CodeMirrorのcontentDOM・検索ボックスのinput等)へ
 // イベントが届く前に発火するため、(1)CodeMirror既定のキーマップ(Ctrl+I/U/[/]等)より
 // 確実に先着でき、(2)検索ボックス等どのDOM要素にフォーカスがあっても素通りしない。
-// 割り当てているショートカットはすべてCtrl修飾または機能キーのみ(通常の文字入力と
-// 衝突しない)ため、入力欄にフォーカスがあってもここで奪って問題ない。
+// ただし、モーダルが開いている間と、入力欄にいる間の本文を書き換えるコマンドは除く(下の isModalOpen など)。
 function isShortcutEnabled(cmd, ctx) {
   const grayed = cmd.grayed?.(ctx) ?? false;
   return !grayed && (cmd.enabled ? cmd.enabled(ctx) : true);
+}
+// 開いているモーダル(確認・入力のダイアログ、コマンドパレット、クイックオープン、言語の選択)があるか。
+// 設定がウィンドウの中身そのもののとき(設定ウィンドウ)は aria-modal を付けていないので当たらない。
+function isModalOpen() {
+  for (const el of document.querySelectorAll('[aria-modal="true"]')) {
+    if (el.isConnected && el.getClientRects().length > 0) return true;
+  }
+  return false;
+}
+// 本文(CodeMirror の .cm-content)以外の、文字を打つ欄にフォーカスがあるか。
+export function isTextInputTarget(t) {
+  if (!t || t.nodeType !== 1) return false;
+  if (t.closest?.(".cm-content")) return false;
+  const tag = t.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable === true;
+}
+// 入力欄にいても使えるコマンド。本文に書き込まないもの(ファイル・表示・ヘルプ・検索)。
+const ALLOWED_EDIT_IN_INPUT = new Set(["edit.find", "edit.findNext", "edit.findPrev", "edit.replace", "edit.globalSearch"]);
+export function allowedInTextInput(id) {
+  if (id.startsWith("para.") || id.startsWith("format.")) return false;
+  if (id.startsWith("edit.")) return ALLOWED_EDIT_IN_INPUT.has(id);
+  return true;
 }
 export function bindShortcuts(commands, ctx) {
   // combo(修飾キーの分解結果)は毎回その場でparseShortcut()する。設定画面(C-10)で
@@ -1213,9 +1234,17 @@ export function bindShortcuts(commands, ctx) {
     // フラグで、window(捕捉フェーズ)はdocument(同じく捕捉フェーズ)より必ず先に発火するため、
     // ここで止めない限りsettings.js側のリスナーまでイベントが届かない。
     if (ctx.shortcutsSuppressed) return;
+    // ダイアログ・コマンドパレットが開いている間は、背後へ働くショートカットを止める。
+    // 入力欄(検索欄・パレットの入力欄など)にいる間は、本文を書き換えるコマンドを止める。
+    // (2026-11 の総点検2。それまでは捕捉フェーズで常に奪っていたため、検索欄で Ctrl+B を押すと
+    //  見えない本文に「****」が入り、確認ダイアログの表示中に Ctrl+W でウィンドウが閉じていた)
+    if (isModalOpen()) return;
+    const inInput = isTextInputTarget(e.target);
     for (const cmd of commands) {
       if (!cmd.shortcut) continue;
       if (!matchesShortcut(e, parseShortcut(cmd.shortcut), getKeyboardLayout())) continue;
+      // 入力欄では本文を書き換えるコマンドを通さず、入力欄そのものの動作(Ctrl+Z・Ctrl+A など)に任せる
+      if (inInput && !allowedInTextInput(cmd.id)) return;
       if (!isShortcutEnabled(cmd, ctx)) {
         console.log(`[shortcut] ${cmd.shortcut} は一致したが無効(grayed/enabled=false): ${cmd.id}`);
         continue;

@@ -144,4 +144,36 @@ public class ExternalFileStateLogicTests
         Assert.True(ExternalFileStateLogic.ShouldAskAboutExternalChange(@"C:\a.txt", 指紋A, @"C:\a.txt", null));
         Assert.True(ExternalFileStateLogic.ShouldAskAboutExternalChange(@"C:\b.txt", 指紋A, @"C:\a.txt", 指紋A));
     }
+
+    // ---- 保存の直前に、開いた後で外部の変更があったかを確かめる(2026-11 の総点検2) ----
+    // 一時ファイルから置き換える形の保存は、監視には「名前の変更」「削除」に見え、
+    // こちらの保存で黙って上書きしていた。
+
+    [Fact]
+    public void 保存前_同じファイルの中身が変わっていれば上書きを確かめる()
+    {
+        Assert.True(ExternalFileStateLogic.ChangedSinceKnown(@"C:\a.txt", 指紋A, @"c:\A.TXT", 指紋B));
+    }
+
+    [Fact]
+    public void 保存前_中身が同じなら確かめない()
+    {
+        Assert.False(ExternalFileStateLogic.ChangedSinceKnown(@"C:\a.txt", 指紋A, @"C:\a.txt", new byte[] { 1, 2, 3 }));
+    }
+
+    [Fact]
+    public void 保存前_分からないときは確かめない_保存のたびに尋ねないため()
+    {
+        Assert.False(ExternalFileStateLogic.ChangedSinceKnown(null, null, @"C:\a.txt", 指紋A));
+        Assert.False(ExternalFileStateLogic.ChangedSinceKnown(@"C:\a.txt", 指紋A, @"C:\a.txt", null));
+        Assert.False(ExternalFileStateLogic.ChangedSinceKnown(@"C:\b.txt", 指紋A, @"C:\a.txt", 指紋B));
+    }
+
+    [Fact]
+    public void 上書きの確認は_何が失われるかを書く()
+    {
+        string m = ExternalFileStateLogic.BuildOverwriteChangedMessage("メモ.md");
+        Assert.Contains("「メモ.md」", m);
+        Assert.Contains("失われます", m);
+    }
 }

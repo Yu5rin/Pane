@@ -1946,8 +1946,10 @@ html[data-theme="dark"] .cm-search-ruler-mark.is-active {
 .help-search-nav-btn:hover { background: var(--accent-soft); color: var(--accent-ink); }
 /* UI点検第2弾(自主点検で追加発見。指摘8と同根): 同上の理由でvar(--menu-hover-fg,
    var(--accent))に差し替える。 */
-mark.help-search-hit { background: var(--accent-soft); color: var(--menu-hover-fg, var(--accent)); border-radius: 2px; }
-mark.help-search-hit.current { background: var(--accent-ink); color: var(--paper); }
+/* 頭の html は、暗いテーマの共通の mark(html[data-theme="dark"] mark)に負けないため。
+   以前は暗いテーマで背景だけがそちらの黄土色に置き換わり、文字が読めなかった(2026-11 の総点検2) */
+html mark.help-search-hit { background: var(--accent-soft); color: var(--menu-hover-fg, var(--accent)); border-radius: 2px; }
+html mark.help-search-hit.current { background: var(--accent-ink); color: var(--paper); }
 
 /* ---- マウスを乗せた行と、選択中の行を別の濃さにする(2026-11 の点検) ----
    一覧の行は、乗せた行も選択中の行も同じ var(--accent-soft) で塗っていたため、

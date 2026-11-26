@@ -97,4 +97,24 @@ internal static class ExternalFileStateLogic
         if (!string.Equals(knownPath, currentPath, StringComparison.OrdinalIgnoreCase)) return true;
         return !knownHash.AsSpan().SequenceEqual(currentHash);
     }
+    /// <summary>
+    /// 上書き保存の直前に、開いた(保存した)後で他のアプリが中身を書き換えたと言い切れるか。
+    /// 確認を出しすぎないよう、同じファイルの指紋が両方そろっていて、違うときだけ true にする
+    /// (<see cref="ShouldAskAboutExternalChange"/>は分からないときも尋ねる側に倒すが、こちらは逆)。
+    ///
+    /// 【なぜ要るか】(2026-11 の総点検2) 多くのエディタは、一時ファイルに書いてから元の名前へ
+    /// 置き換えて保存する。監視はこれを「名前の変更」や「削除」と受け取り、中身の変更として
+    /// 知らせなかったので、こちらで保存すると他のアプリでの変更を黙って上書きしていた。
+    /// </summary>
+    internal static bool ChangedSinceKnown(string? knownPath, byte[]? knownHash, string targetPath, byte[]? currentHash)
+    {
+        if (knownPath is null || knownHash is null || currentHash is null) return false;
+        if (!string.Equals(knownPath, targetPath, StringComparison.OrdinalIgnoreCase)) return false;
+        return !knownHash.AsSpan().SequenceEqual(currentHash);
+    }
+
+    /// <summary>外部で書き換えられたファイルへ上書きする前の確認の文面。</summary>
+    public static string BuildOverwriteChangedMessage(string targetFileName)
+        => $"「{targetFileName}」は、開いた後に他のアプリケーションで変更されています。"
+            + "\nこのまま保存すると、その変更は失われます。上書きしますか?";
 }

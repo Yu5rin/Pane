@@ -77,13 +77,30 @@ function listLines(listEl, depth) {
   return lines;
 }
 
+// 段落を作る側の要素(これ以外の要素と文字は、続けて1つの段落の中身になる)。
+const BLOCK_LEVEL = new Set([...BLOCK_TAGS.split(","), "li", "dl", "dt", "dd", "figure", "header", "footer", "main", "nav", "aside", "details", "summary", "form", "address", "fieldset", "hr"]);
+const isInlineNode = (n) =>
+  n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && !BLOCK_LEVEL.has(n.tagName.toLowerCase()) && !n.querySelector(BLOCK_TAGS));
+
 function block(node, out, ctx) {
+  // 続いている文字とインライン要素(a・strong・span など)は、まとめて1つの段落にする。
+  // Chrome は段落の途中だけを選んでコピーすると、span・a・strong を body の直下に並べた HTML を
+  // 渡す。以前はそれを1つずつ別の段落にしていたので、文が4段落に割れ、リンク先と太字が消えていた
+  // (2026-11 の総点検2)。
+  let run = null;
+  const flush = () => {
+    if (!run) return;
+    const t = inline(run).trim();
+    if (t) out.push(t);
+    run = null;
+  };
   for (const child of node.childNodes) {
-    if (child.nodeType === Node.TEXT_NODE) {
-      const t = child.textContent.replace(/\s+/g, " ").trim();
-      if (t) out.push(t);
+    if (isInlineNode(child) && !(child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === "br" && !run)) {
+      if (!run) run = node.ownerDocument.createElement("span");
+      run.appendChild(child.cloneNode(true));
       continue;
     }
+    flush();
     if (child.nodeType !== Node.ELEMENT_NODE) continue;
     const tag = child.tagName.toLowerCase();
     const m = tag.match(/^h([1-6])$/);
@@ -131,6 +148,7 @@ function block(node, out, ctx) {
     // 未対応のブロック要素は中身を再帰的に見る(div/section/article相当の包括タグ対策)
     block(child, out, ctx);
   }
+  flush();
 }
 
 // 「書式」と呼べる要素。1つも無ければ、そのHTMLはただの行の並びであって、

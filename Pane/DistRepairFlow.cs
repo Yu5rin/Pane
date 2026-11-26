@@ -122,7 +122,7 @@ internal static class DistRepairFlow
 
             try
             {
-                await RepairAsync(owner, restartIntoNewVersion);
+                await RepairAsync(owner, hasUnsavedDocuments, restartIntoNewVersion);
             }
             finally
             {
@@ -135,7 +135,7 @@ internal static class DistRepairFlow
         }
     }
 
-    private static async Task RepairAsync(Form owner, Action<string> restartIntoNewVersion)
+    private static async Task RepairAsync(Form owner, Func<bool> hasUnsavedDocuments, Action<string> restartIntoNewVersion)
     {
         using var progress = new RepairProgressForm(owner);
         progress.Show(owner);
@@ -155,6 +155,14 @@ internal static class DistRepairFlow
             progress.SetStatus($"{info.LatestVersion} をダウンロードしています…", 0);
             var downloadProgress = new Progress<int>(p => progress.SetStatus($"{info.LatestVersion} をダウンロードしています… {p}%", p));
             string zipPath = await UpdateService.DownloadAsync(info, downloadProgress, CancellationToken.None);
+
+            // ダウンロードの間の編集を確かめ直す(更新の適用と同じ。SettingsBridge.HandleApplyUpdateRequestAsync参照)
+            if (hasUnsavedDocuments())
+            {
+                progress.Close();
+                ShowManualRepair(owner, "ダウンロード中に変更されたため、止めました。保存してからPaneを起動し直してください。", releaseUrl);
+                return;
+            }
 
             progress.SetStatus("ファイルを置き直しています…");
             string newExe = UpdateService.ApplyUpdate(zipPath);

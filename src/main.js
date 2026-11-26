@@ -2033,6 +2033,11 @@ function buildEditorContextMenuTree(c, e) {
  */
 function markdownFromClipboardHtml(html) {
   if (!html || htmlIsPlainTextLike(html)) return null;
+  // Markdownの文書でないとき(コード・プレーンテキスト)と、カーソルがコードの中にあるときは
+  // 変換しない(プレーンテキストのまま入れる)。以前はどこでも変換していたので、コードブロックの中に
+  // Webページのコードを貼ると「```」が入れ子になってブロックが壊れ、.txt に太字を貼ると
+  // 「**重要**」になっていた(2026-11 の総点検2)。
+  if (editor.getMode() !== "markdown" || editor.isCursorInCode()) return null;
   const md = htmlToMarkdown(html).trim();
   return md || null;
 }

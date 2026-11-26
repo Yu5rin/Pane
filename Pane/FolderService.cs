@@ -252,6 +252,13 @@ internal static class FolderService
     /// エクスポート後の「開く」(MainForm.ApplyExportAfter)と同じ流儀(UseShellExecute=true)。</summary>
     public static void OpenInDefaultApp(string path)
     {
+        // 既定のアプリへ渡すのは、http/https と、在る画像ファイルだけ(DefaultAppTargetLogic参照)。
+        DefaultAppTargetLogic.Kind kind = DefaultAppTargetLogic.Classify(path);
+        if (kind == DefaultAppTargetLogic.Kind.Refused || (kind == DefaultAppTargetLogic.Kind.ImageFile && !File.Exists(path)))
+        {
+            Logger.Warn($"open-in-default-app: 画像でもWebのURLでもないため開かない ({PrivacyLogFormatter.ShortenPathOrUri(path)})");
+            return;
+        }
         try
         {
             using var proc = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
