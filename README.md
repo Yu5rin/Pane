@@ -75,7 +75,7 @@ dotnet publish Pane/Pane.csproj -c Release -r win-x64 --self-contained true -o p
 `npm run build` を先に実行する必要があります（C# 側がその生成物に依存しているため）。
 
 ```bash
-npm run verify         # 回帰スイート（76本・約3200件）を全数実行する
+npm run verify         # 回帰スイート（75本・約3200件）を全数実行する
 dotnet test            # C# 側のテスト
 npm run screenshots    # この README の画面写真を撮り直す（docs/images/）
 ```
