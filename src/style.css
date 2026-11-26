@@ -281,9 +281,9 @@ html[data-theme="dark"] {
   --code-var: #001080;
   --code-fn: #795E26;
   --code-str: #A31515;
-  --code-num: #098658;
+  --code-num: #0B7C53;
   --code-cmt: #008000;
-  --code-type: #267F99;
+  --code-type: #25768E;
   --code-prop: #001080;
   --code-op: var(--ink);
   --code-regex: #811F3F;
@@ -354,7 +354,16 @@ body {
 button { font-family: inherit; cursor: pointer; }
 input, textarea { font-family: inherit; color: var(--ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-::selection { background: var(--accent-soft); }
+/* 選択範囲の色。明るいテーマは、面の色(--accent-soft)だと地との差が 1.0〜1.1 しか無く、特に sepia の
+   コードブロックでは選択しても見た目が変わらなかった(2026-11 の総点検2)。主色を28%混ぜて 1.3〜1.5 にする。
+   暗いテーマは地との差が足りているので、これまでどおり --accent-soft。 */
+:root { --selection-bg: var(--accent-soft); }
+html[data-theme="light"] { --selection-bg: color-mix(in srgb, var(--accent) 28%, transparent); }
+::selection { background: var(--selection-bg); }
+/* キーボード操作の枠。明るいテーマは、メニューバーの面の上で主色の枠が 2.3〜2.8 しか無かったので、
+   濃い方の主色にする(sepia 2.84→4.48・solarized-light 2.29→3.71)。暗いテーマは --accent のままで
+   4.38 以上あるので変えない(--accent-ink にしても害は無く、solarized-dark は 4.38→8.16 になる)。 */
+html[data-theme="light"] :focus-visible { outline-color: var(--accent-ink); }
 /* ===== スクロールバー =====
    従来はscrollbar-width:thin(Chromium実測で約11px)のみを指定していたが、指摘により
    1.5倍(約17px)へ太くする。WebView2はChromium系のため::-webkit-scrollbarで幅を
@@ -820,7 +829,7 @@ body.export-layout .cm-scroller { overflow: visible !important; }
 #cm-host.mode-code .cm-gutterElement.cm-active-line-gutter { background: var(--active-line-bg); }
 
 .hl-icon { background: #F6E27A; color: #333; border-radius: 3px; padding: 0 3px; }
-html[data-theme="dark"] .hl-icon { background: #8A7A2E; color: #F2EFDF; }
+html[data-theme="dark"] .hl-icon { background: #756827; color: #F2EFDF; }
 mark { background: #F6E27A; color: inherit; border-radius: 3px; padding: 0 2px; }
 html[data-theme="dark"] mark { background: #8A7A2E; }
 
@@ -988,7 +997,7 @@ html[data-theme="dark"] .cm-line.cm-codeblock-line { background: var(--code-bg);
    (.cm-table th と同じ考え方、詳細は同セレクタのコメント参照)。 */
 .cm-line.cm-table-row { background: var(--panel-bg); font-family: var(--font-mono); font-size: .9em; padding-left: 8px !important; padding-right: 8px !important; }
 .cm-line.cm-table-header { font-weight: 700; border-bottom: 2px solid var(--line); }
-html[data-theme="dark"] .tok-mark { background: #8A7A2E; color: #F2EFDF; }
+html[data-theme="dark"] .tok-mark { background: #756827; color: #F2EFDF; }
 
 /* ===== マークダウン記法拡張(仕様書 第2.9節) ===== */
 
@@ -1135,8 +1144,10 @@ html[data-theme="dark"] .tok-mark { background: #8A7A2E; color: #F2EFDF; }
    (ライトは同じ40%でも7.1〜8.7:1を保てる)。26%へ下げると4.3:1以上に戻り、
    面と紙のコントラスト低下(2.2:1→1.6:1前後)は var(--accent) の枠線(紙に対して
    実測4.0〜7.4:1)が補う。「面は控えめ・輪郭ははっきり」という枠線併用の狙いどおりの配分。 */
+/* 2026-11 の総点検2: 26%→15%。26%だと solarized-dark 3.92・night 3.70 で、本文(4.5)に届かなかった。
+   15%で 4.60・4.57。面と紙の差は 1.2〜1.3 まで下がるが、var(--accent) の枠線が輪郭を保つ。 */
 html[data-theme="dark"] .cm-search-hit {
-  background: color-mix(in srgb, var(--accent) 26%, var(--paper));
+  background: color-mix(in srgb, var(--accent) 15%, var(--paper));
 }
 .cm-search-hit.cm-search-hit-active {
   background: #E8590C;

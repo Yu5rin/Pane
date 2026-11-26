@@ -4829,7 +4829,8 @@ export function createEditor(parent, { onChange, onFocus, onBlur, onCompositionC
   const makeTheme = () => {
     const cs = getComputedStyle(document.documentElement);
     const ink = cs.getPropertyValue("--ink").trim() || "#1F2428";
-    const accentSoft = cs.getPropertyValue("--accent-soft").trim() || "#E1EFED";
+    // 選択範囲の色(--selection-bg。style.css の説明を参照)。無ければ従来の --accent-soft
+    const accentSoft = cs.getPropertyValue("--selection-bg").trim() || cs.getPropertyValue("--accent-soft").trim() || "#E1EFED";
     return EditorView.theme({
       "&": { fontSize: fontSize + "px", height: "100%", backgroundColor: "transparent" },
       ".cm-scroller": { fontFamily: "inherit", lineHeight: "1.85" },

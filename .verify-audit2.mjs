@@ -3,6 +3,7 @@
 //   (B) 検索欄・コマンドパレットにいる間、本文を書き換えるショートカットが背後の本文に働かない
 //   (C) Webページの文の一部(リンク・太字を含む)を貼ると、1つの段落のまま、リンクと太字が残る
 //   (D) コードブロックの中・コードの文書では、貼り付けたHTMLをMarkdownへ変換しない
+//   (H) 配色の調整(選択範囲・キーボード操作の枠・検索の一致・強調)の実測
 //   (E) 暗いテーマで、取扱説明書の検索の強調が、共通の mark の黄土色に負けない
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -111,6 +112,48 @@ try {
   await setDoc("");
   await type("*強調*です");
   ok("(F) 「*強調*」はこれまでどおり対になる", (await doc()) === "*強調*です", await doc());
+
+  // (H) 配色の調整(2026-11 の総点検2。見た目の案を選んでもらったもの)
+  const colors = await page.evaluate(() => {
+    // color-mix() などは computed 値が color(srgb ...) になるので、canvas に塗って画素から読む
+    const cv = document.createElement("canvas"); cv.width = cv.height = 1; const g = cv.getContext("2d", { willReadFrequently: true });
+    const toRgb = (c) => { g.clearRect(0, 0, 1, 1); g.fillStyle = "#000"; g.fillStyle = c; g.fillRect(0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };
+    const over = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    const mix = (a, b, t) => [0, 1, 2].map((i) => a[i] * t + b[i] * (1 - t));
+    const out = {};
+    const h = document.documentElement;
+    for (const [mode, id] of [["light", "default"], ["light", "sepia"], ["light", "github"], ["light", "solarized-light"], ["dark", "default"], ["dark", "nord"], ["dark", "dracula"], ["dark", "solarized-dark"], ["dark", "night"]]) {
+      h.setAttribute("data-theme", mode); h.setAttribute(mode === "light" ? "data-light-theme" : "data-dark-theme", id);
+      const cs = getComputedStyle(h); const v = (n) => toRgb(cs.getPropertyValue(n).trim());
+      const paper = v("--paper"), code = v("--code-bg"), ink = v("--ink"), accent = v("--accent"), chrome = v("--chrome-bg");
+      const sel = toRgb(cs.getPropertyValue("--selection-bg").trim());
+      const r = { selPaper: cr(over(sel, paper), paper), selCode: cr(over(sel, code), code) };
+      const probe = document.createElement("button"); document.body.appendChild(probe); probe.focus(); probe.style.background = "transparent";
+      const fcs = getComputedStyle(probe);
+      r.focusOnChrome = cr(toRgb(fcs.outlineColor), chrome);
+      if (mode === "dark") {
+        r.hit = cr(ink, mix(accent, paper, 0.15));
+        const mk = document.createElement("span"); mk.className = "tok-mark"; document.body.appendChild(mk);
+        const mcs = getComputedStyle(mk); r.mark = cr(toRgb(mcs.color), toRgb(mcs.backgroundColor)); mk.remove();
+      }
+      probe.remove();
+      out[mode + "-" + id] = r;
+      h.removeAttribute("data-light-theme"); h.removeAttribute("data-dark-theme");
+    }
+    return out;
+  });
+  for (const [k, r] of Object.entries(colors)) {
+    if (k.startsWith("light-")) {
+      ok(`(H) ${k}: 選択範囲が本文の地と区別できる(${r.selPaper.toFixed(2)} >= 1.3)・コードブロックでも(${r.selCode.toFixed(2)} >= 1.3)`, r.selPaper >= 1.3 && r.selCode >= 1.3, r);
+      ok(`(H) ${k}: キーボード操作の枠がメニューバーの面の上で3以上(${r.focusOnChrome.toFixed(2)})`, r.focusOnChrome >= 3, r);
+    } else {
+      ok(`(H) ${k}: 暗いテーマのキーボード操作の枠がメニューバーの面の上で3以上(${r.focusOnChrome.toFixed(2)})`, r.focusOnChrome >= 3, r);
+      ok(`(H) ${k}: 検索の一致の面の上の文字が4.5以上(${r.hit.toFixed(2)})`, r.hit >= 4.5, r);
+      ok(`(H) ${k}: ==強調== の文字が4.5以上(${r.mark.toFixed(2)})`, r.mark >= 4.5, r);
+    }
+  }
 
   // (E)
   const bg = await page.evaluate(() => {

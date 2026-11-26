@@ -19,7 +19,8 @@
 //       キーワード/変数名/関数名/文字列/数値/コメントの6種が、9テーマすべてで
 //       それぞれ異なる色になっていること(コードモードの.jsファイル・
 //       Markdownの```jsフェンス双方で確認)。また、コメントを除く5種が
-//       背景(--paper・--code-bg)に対しコントラスト比3.0以上を保っていること
+//       背景(--paper・--code-bg)に対しコントラスト比4.5以上を保っていること(2026-11 の総点検2で3.0から引き上げ。
+//       solarized-dark の変数色だけ公式配色のまま3.0)
 //       (地の色に埋もれていないことの実測)。
 //   (F) 不具合調査(ユーザー報告「シンタックスハイライトが効いていない箇所が見られます」、
 //       実際の画像はステータスバーが「コード (JSON)」のままJavaScriptのコードが無色で
@@ -142,7 +143,9 @@ async function extractJsTokens(page) {
 const KNOWN_SHARED_COLOR_EXCEPTIONS = {
   "dracula": { var_eq_ink: true },
   "solarized-light": { str_eq_num: true },
-  "solarized-dark": { str_eq_num: true },
+  // solarized-dark の変数色(#268BD2)は、公式配色のまま残している。4.5 に届かせるには40%も色が
+  // 変わるため(2026-11 の総点検2)。コードモード(--paper の上)で 4.08。3.0 以上は満たす。
+  "solarized-dark": { str_eq_num: true, var_min_contrast: 3.0 },
 };
 
 function checkJsDistinct(prefix, tk, paperBg, codeBg, themeLabel) {
@@ -166,12 +169,15 @@ function checkJsDistinct(prefix, tk, paperBg, codeBg, themeLabel) {
   const expectMin = exc.str_eq_num ? 4 : 5;
   ok(`${prefix} キーワード/変数/関数/文字列/数値が互いに異なる色(${distinctSet.size}/5種、要求${expectMin}種以上) ${JSON.stringify(roles)}`,
     distinctSet.size >= expectMin);
-  // コメント以外が背景に埋もれていない(コントラスト比3.0以上、paper・code-bg両方)
+  // コメント以外が背景に埋もれていない(コントラスト比4.5以上、paper・code-bg両方)。
+  // 以前は3.0以上で通しており、5つのテーマで4.0〜4.4のものが残っていた(2026-11 の総点検2)。
+  // 細い文字の普通の大きさなので、大きな文字向けの3:1では足りない。
   for (const [name, val] of Object.entries(roles)) {
     const rP = contrastRatio(val, paperBg);
     const rC = contrastRatio(val, codeBg);
-    ok(`${prefix} ${name}が背景に埋もれていない(vsPaper=${rP?.toFixed(2)} vsCodeBg=${rC?.toFixed(2)})`,
-      rP != null && rC != null && rP >= 3.0 && rC >= 3.0);
+    const min = (name === "var" && exc.var_min_contrast) || 4.5;
+    ok(`${prefix} ${name}が背景に埋もれていない(vsPaper=${rP?.toFixed(2)} vsCodeBg=${rC?.toFixed(2)}、基準${min})`,
+      rP != null && rC != null && rP >= min && rC >= min);
   }
   // コメントも読める(4.5:1以上、paper・code-bg両方)。以前はコメントだけ検査から外しており、
   // nord 1.7 / night 2.3 / solarized-dark 2.8 / dracula 3.0 のまま通っていた(2026-11 の点検)。
