@@ -118,7 +118,10 @@ internal static class TextFileService
         {
             using (PerfWatch.Start($"ファイルの保存({bytes.Length}バイト)"))
             {
-                File.WriteAllBytes(tempPath, bytes);
+                // ディスクまで書き切ってから置き換える(SettingsService.WriteThrough参照。2026-11 の総点検2)。
+                // 以前の File.WriteAllBytes は書き切りを待たないので、保存の直後に電源が落ちると、
+                // 置き換えだけが残って中身が空のファイルになることがあった。
+                SettingsService.WriteThrough(tempPath, bytes);
                 // 同一ボリューム内であればアトミックな置き換えとして扱える。
                 File.Move(tempPath, path, overwrite: true);
             }

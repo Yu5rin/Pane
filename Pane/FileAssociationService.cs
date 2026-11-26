@@ -492,6 +492,10 @@ internal static class FileAssociationService
 
                 // 2. 拡張子ごとの古典的な関連付け (HKCU\Software\Classes\.<ext> の既定値)
                 using RegistryKey extKey = Registry.CurrentUser.CreateSubKey($@"Software\Classes\.{ext}");
+                // 前の関連付け先を控えておく(外すときに戻すため。Pane自身のものは控えない)
+                string? previous = extKey.GetValue(string.Empty) as string;
+                if (!string.IsNullOrEmpty(previous) && previous != progId && previous != LegacyProgId)
+                    extKey.SetValue(PreviousDefaultValueName, previous);
                 extKey.SetValue(string.Empty, progId);
             }
 
@@ -509,6 +513,9 @@ internal static class FileAssociationService
     /// (他アプリが横取り済みなら触らない)。あわせて、旧ProgID("Pane.MarkdownFile")が
     /// 残っていれば掃除するフォールバックも実行する。
     /// </summary>
+    /// <summary>関連付けの前にあった既定値を控えておく値の名前(.ext キーの中)。</summary>
+    private const string PreviousDefaultValueName = "Pane.PreviousDefault";
+
     public static void Unregister(IReadOnlyCollection<string> extensions)
     {
         HashSet<string> exts = Normalize(extensions);
@@ -524,9 +531,19 @@ internal static class FileAssociationService
                 {
                     string? current = extKey?.GetValue(string.Empty) as string;
                     // 新ProgID・旧ProgIDのどちらでも、自分が設定したものであれば削除する。
-                    if (current == progId || current == LegacyProgId)
+                    if (extKey is not null && (current == progId || current == LegacyProgId))
                     {
-                        Registry.CurrentUser.DeleteSubKeyTree($@"Software\Classes\.{ext}", throwOnMissingSubKey: false);
+                        // キーを丸ごと消さず、既定値だけを戻す。以前は DeleteSubKeyTree で消していたので、
+                        // 他のアプリが書いた「プログラムから開く」の一覧(OpenWithProgids)や、Paneの
+                        // 「新規作成」メニューの登録(ShellNew)まで消えていた(2026-11 の総点検2)。
+                        if (extKey.GetValue(PreviousDefaultValueName) is string previous && previous.Length > 0)
+                            extKey.SetValue(string.Empty, previous);
+                        else
+                            extKey.DeleteValue(string.Empty, throwOnMissingValue: false);
+                        extKey.DeleteValue(PreviousDefaultValueName, throwOnMissingValue: false);
+                        bool empty = extKey.ValueCount == 0 && extKey.SubKeyCount == 0;
+                        extKey.Close();
+                        if (empty) Registry.CurrentUser.DeleteSubKey($@"Software\Classes\.{ext}", throwOnMissingSubKey: false);
                     }
                 }
 

@@ -42,5 +42,18 @@ check("**a `b` c**", "<strong>a <code>b</code> c</strong>");
 check("a **b** c", "<p>a <strong>b</strong> c</p>");
 check("[**太字**](https://example.com)", '<a href="https://example.com"><strong>太字</strong></a>');
 
+// 2026-11 の総点検2: 書き出しで内容が消える・記号が残る
+check("> 一行目\n> 二行目\n> 三行目", "<blockquote><p>一行目\n二行目\n三行目</p></blockquote>");
+ok("引用の2行目以降に「&gt;」が残らない", !render("> a\n> b").includes("&gt;"), render("> a\n> b"));
+check("p\n\n    code\n      more\n\nq", "<pre><code>code\n  more</code></pre>");
+check("- b\n\n  ```js\n  code\n  ```", '<li>b<pre><code class="language-js">');
+check("- a\n\n  para2", "<li>a<p>para2</p></li>");
+check("- a\n\n  > 引用", "<li>a<blockquote><p>引用</p></blockquote></li>");
+check("押す <kbd>Ctrl</kbd> と<br>改行", "押す <kbd>Ctrl</kbd> と<br>改行");
+check('文 <span onclick="x">a</span>', "&lt;span onclick=");
+ok("ブロックHTMLは(Nodeでは)消えずに文字で残る", render("<details>\n<summary>s</summary>\n中身\n</details>").includes("中身"), render("<details>\n<summary>s</summary>\n中身\n</details>"));
+check("---\ntitle: x\n# yaml\n---\n\n本文", "<p>本文</p>");
+ok("フロントマターは書き出さない", !render("---\ntitle: x\n# yaml\n---\n\n本文").includes("title"), render("---\ntitle: x\n# yaml\n---\n\n本文"));
+
 console.log(`\nNG=${ng}`);
 process.exit(ng ? 1 : 0);

@@ -1,11 +1,11 @@
 // MarkdownをHTMLへ変換する。仕様書 E-05(HTMLとしてコピー)・X-02/X-03(HTMLエクスポート)で
 // 共用する。ライブプレビューと同じ構文木(@lezer/markdown)を辿るため、見た目の解釈は一致する。
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EMOJI_SHORTCODES, extractHeadings } from "./markdown-extras.js";
+import { EMOJI_SHORTCODES, extractHeadings, frontmatterEnd } from "./markdown-extras.js";
 import { renderMathToHtml } from "./math.js";
 // 生HTML(html-sanitize.js)と同じ基準でURLの安全性を検証する。Markdown記法の
 // リンク・画像だけ検証対象外というのは一貫性を欠くため、判定ロジックを共用する。
-import { isSafeUrl } from "./html-sanitize.js";
+import { isSafeUrl, sanitizeHtml } from "./html-sanitize.js";
 
 // renderMarkdownToHtmlが構文木を最後まで伸ばすのに使う上限時間(ミリ秒、ensureSyntaxTree参照)。
 // エクスポートも取扱説明書の表示もユーザーの明示操作に対する一度きりの処理で、
@@ -170,6 +170,21 @@ function inlineHtml(doc, tree, from, to, opts) {
         case "Superscript": html += `<sup>${inlineHtml(doc, tree, c.from + 1, c.to - 1, opts)}</sup>`; pos = c.to; break;
         case "Subscript": html += `<sub>${inlineHtml(doc, tree, c.from + 1, c.to - 1, opts)}</sub>`; pos = c.to; break;
         case "InlineCode": html += `<code>${escText(doc.sliceString(c.from + 1, c.to - 1))}</code>`; pos = c.to; break;
+        case "QuoteMark": {
+          // 引用の2行目以降の行頭の「>」(と続く空白1つ)は本文ではない。以前は文字として残り、
+          // 「&gt; 二行目」と書き出されていた(2026-11 の総点検2)。
+          pos = c.to;
+          if (doc.sliceString(pos, pos + 1) === " ") pos++;
+          break;
+        }
+        case "HTMLTag": {
+          // 属性の無い、見た目だけの短いタグ(<kbd> <br> など)はそのまま通す。それ以外は従来どおり文字で出す。
+          const tag = doc.sliceString(c.from, c.to);
+          const m = /^<(\/?)(kbd|br|sub|sup|u|mark|ins|del|s|small|b|i|em|strong)\s*\/?>$/i.exec(tag);
+          html += m ? `<${m[1]}${m[2].toLowerCase()}>` : inlineTextToHtml(tag, opts);
+          pos = c.to;
+          break;
+        }
         case "Emoji": {
           const code = doc.sliceString(c.from + 1, c.to - 1);
           html += EMOJI_SHORTCODES[code] ?? escText(doc.sliceString(c.from, c.to));
@@ -249,7 +264,9 @@ function renderList(doc, tree, node, ordered, opts) {
     let nestedList = "";
     for (let c = item.firstChild; c; c = c.nextSibling) {
       if (c.name === "Paragraph") {
-        inner += inlineHtml(doc, tree, c.from, c.to, opts);
+        // 2つ目からの段落は段落として出す(以前は1つ目にくっつき「apara2」になっていた)
+        if (inner || checkboxPrefix) nestedList += `<p>${inlineHtml(doc, tree, c.from, c.to, opts)}</p>`;
+        else inner += inlineHtml(doc, tree, c.from, c.to, opts);
       } else if (c.name === "Task") {
         // タスク項目はTaskMarker([ ]/[x])に続くテキストがParagraphに包まれず直下にある
         const marker = c.getChild("TaskMarker");
@@ -262,6 +279,9 @@ function renderList(doc, tree, node, ordered, opts) {
         nestedList += renderList(doc, tree, c, false, opts);
       } else if (c.name === "OrderedList") {
         nestedList += renderList(doc, tree, c, true, opts);
+      } else if (c.name !== "ListMark") {
+        // 項目の中のコード・表・引用など。以前は捨てていた(2026-11 の総点検2)
+        nestedList += renderBlock(doc, tree, c, opts);
       }
     }
     html += `<li>${checkboxPrefix}${inner}${nestedList}</li>`;
@@ -310,6 +330,24 @@ function renderFencedCode(doc, node) {
   return `<pre><code${cls}>${escText(code)}</code></pre>`;
 }
 
+// 字下げ(4つの空白)のコードブロック。行頭の共通の字下げを落として<pre>にする。
+function renderIndentedCode(doc, node) {
+  const lines = doc.sliceString(doc.lineAt(node.from).from, node.to).split("\n");
+  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => /^ */.exec(l)[0].length));
+  const code = lines.map((l) => l.slice(Math.min(indent, /^ */.exec(l)[0].length))).join("\n").replace(/\n+$/, "");
+  return `<pre><code>${escText(code)}</code></pre>`;
+}
+
+// ブロックHTML(<details> <div align="center"> など)。画面と同じく、安全なタグ・属性だけを通す。
+// ブラウザの外(回帰スイートのNode)では文字として出す。
+function renderHtmlBlock(doc, node) {
+  const raw = doc.sliceString(node.from, node.to);
+  if (typeof document === "undefined") return `<p>${escText(raw.trim())}</p>`;
+  const box = document.createElement("div");
+  box.appendChild(sanitizeHtml(raw));
+  return box.innerHTML;
+}
+
 // 見出し(仕様書 exportPageBreakBetweenTopHeadings・exportIncludeOutline)共通の属性文字列。
 // opts.headingIds: Map<開始位置, スラグ> (extractHeadings()の結果から作る。renderStandaloneHtml参照)。
 // opts.pageBreakFroms: Set<開始位置> ページ区切りを入れるべき見出しの開始位置。
@@ -342,7 +380,14 @@ function renderBlock(doc, tree, node, opts) {
     case "Table": return renderTable(doc, tree, node, opts);
     case "HorizontalRule": return "<hr>";
     case "LinkReference": return ""; // 参照リンク定義自体は出力しない(脚注定義は別途処理)
-    default: return "";
+    case "CodeBlock": return renderIndentedCode(doc, node);
+    case "HTMLBlock": return renderHtmlBlock(doc, node);
+    case "CommentBlock": case "ProcessingInstructionBlock": case "QuoteMark": case "ListMark": return "";
+    default: {
+      // 知らないブロックは、消さずに元の文字を段落として出す(以前は黙って消していた。2026-11 の総点検2)
+      const text = doc.sliceString(node.from, node.to).trim();
+      return text ? `<p>${escText(text)}</p>` : "";
+    }
   }
 }
 
@@ -408,9 +453,12 @@ export function renderMarkdownToHtml(state, { from = 0, to = state.doc.length } 
   const tree = ensureSyntaxTree(state, to, ENSURE_PARSE_TIMEOUT_MS) ?? syntaxTree(state);
   const mathBlocks = opts?.collectMath ? findMathBlockRanges(doc) : [];
   let html = "";
+  // 先頭のフロントマター(設定の書き込み)は本文ではないので書き出さない(2026-11 の総点検2。
+  // 以前は <hr><h2>title: x ---</h2> のように出ていた)
+  const fmEnd = frontmatterEnd(doc);
   let node = tree.topNode.firstChild;
   while (node) {
-    if (node.to <= from || node.from >= to) { node = node.nextSibling; continue; }
+    if (node.to <= from || node.from >= to || node.from <= fmEnd) { node = node.nextSibling; continue; }
     const mb = mathBlocks.find((b) => node.from >= b.from && node.from < b.to);
     if (mb) {
       // 数式ブロックの範囲は構文木上どう解釈されていても(通常は1つのParagraphになる)まとめて

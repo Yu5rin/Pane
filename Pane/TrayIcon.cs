@@ -100,10 +100,12 @@ internal sealed class TrayIcon : IDisposable
         foreach (ToolStripItem old in _menu.Items.Cast<ToolStripItem>().ToList()) old.Dispose();
         _menu.Items.Clear();
 
-        ToolStripMenuItem Item(string label, Action run, bool enabled = true)
+        // logName: 記録に残す名前。最近使ったファイルの項目名はフルパスなので、そのままは書かない
+        // (ログを添えて報告してもらう運用のため。2026-11 の総点検2)。
+        ToolStripMenuItem Item(string label, Action run, bool enabled = true, string? logName = null)
         {
             var item = new ToolStripMenuItem(label) { Enabled = enabled };
-            item.Click += (_, _) => Run(label, run);
+            item.Click += (_, _) => Run(logName ?? label, run);
             return item;
         }
 
@@ -115,7 +117,7 @@ internal sealed class TrayIcon : IDisposable
         if (recentFiles.Count == 0) recent.Enabled = false;
         foreach (string path in recentFiles)
         {
-            recent.DropDownItems.Add(Item(path.Replace("&", "&&"), () => _actions.OpenDocument(path)));
+            recent.DropDownItems.Add(Item(path.Replace("&", "&&"), () => _actions.OpenDocument(path), logName: "最近使ったファイル: " + PrivacyLogFormatter.ShortenPath(path)));
         }
         SetUpSubmenu(recent, renderer);
         _menu.Items.Add(recent);
@@ -128,7 +130,7 @@ internal sealed class TrayIcon : IDisposable
         foreach (Form window in windows)
         {
             Form target = window;
-            windowsItem.DropDownItems.Add(Item(TrayIconLogic.WindowLabel(target.Text), () =>
+            windowsItem.DropDownItems.Add(Item(TrayIconLogic.WindowLabel(target.Text), logName: "開いているウィンドウ", run: () =>
             {
                 if (target.IsDisposed) return;
                 if (target.WindowState == FormWindowState.Minimized) target.WindowState = FormWindowState.Normal;

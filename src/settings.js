@@ -1949,15 +1949,19 @@ export function createSettings(ctx, { mode = "modal" } = {}) {
 
   function renderKeybindingRows(table, commands) {
     // 重複検出(仕様書: 既に使われている組み合わせなら赤系で警告。保存自体は許可する)。
+    // 割り当てを変えられない基本のキー(元に戻す Ctrl+Z・コピー Ctrl+C・パレット Ctrl+Shift+P など。
+    // cmd.keyHint)も数える。以前は数えず、日時の挿入に Ctrl+C を割り当てても警告が出ないまま、
+    // コピーが効かなくなっていた(2026-11 の総点検2)。
     const byShortcut = new Map();
     for (const cmd of commands) {
-      const sc = effectiveShortcut(cmd);
+      const sc = effectiveShortcut(cmd) || cmd.keyHint || "";
       if (!sc) continue;
       if (!byShortcut.has(sc)) byShortcut.set(sc, []);
       byShortcut.get(sc).push(cmd);
     }
     table.innerHTML = commands.map((cmd) => {
-      const sc = effectiveShortcut(cmd);
+      const fixedKey = effectiveShortcut(cmd) ? "" : (cmd.keyHint || "");
+      const sc = effectiveShortcut(cmd) || fixedKey;
       const conflictWith = sc && byShortcut.get(sc).length > 1 ? byShortcut.get(sc).filter((c) => c.id !== cmd.id) : [];
       const capturing = capturingCommandId === cmd.id;
       const menuLabel = cmd.menu ? (MENU_LABELS[cmd.menu] ?? cmd.menu) : "";
@@ -1968,7 +1972,7 @@ export function createSettings(ctx, { mode = "modal" } = {}) {
       return `
         <button type="button" class="kb-row${capturing ? " capturing" : ""}${conflictWith.length ? " conflict" : ""}" data-cmd="${cmd.id}">
           <span class="kb-cell-label">${menuLabel ? menuLabel + ": " : ""}${cmd.label}</span>
-          <span class="kb-cell-shortcut">${capturing ? "キーを押してください…" : (sc ? `<kbd>${shownShortcut(sc)}</kbd>` : "(なし)")}</span>
+          <span class="kb-cell-shortcut">${capturing ? "キーを押してください…" : (sc ? `<kbd>${shownShortcut(sc)}</kbd>${fixedKey ? '<span class="kb-cell-fixed">基本のキー</span>' : ""}` : "(なし)")}</span>
           ${warnText ? `<span class="kb-cell-warn">${warnText}</span>` : ""}
         </button>`;
     }).join("");
@@ -2163,7 +2167,7 @@ export function createSettings(ctx, { mode = "modal" } = {}) {
          <div class="settings-field-desc">詳しい内訳はログに残しています。${connectionCheckResult.logFolderPath ? `（${escapeHtml(connectionCheckResult.logFolderPath)}）` : ""}</div>`
       : "";
     return `
-      <p class="settings-intro">確認と更新は、下のボタンを押したときにだけ行います。自動では通信しません。</p>
+      <p class="settings-intro">下のボタンは、押したときに配布元へ問い合わせます。起動時の確認と自動の更新は、上のチェックで切り替えられます。</p>
       <div class="settings-info-row">
         <button type="button" class="btn tiny" data-update-action="check"${busy ? " disabled" : ""}>${escapeHtml(checkLabel)}</button>
       </div>
@@ -2282,7 +2286,7 @@ export function createSettings(ctx, { mode = "modal" } = {}) {
       <div class="settings-group">
         <div class="settings-group-title">更新</div>
         ${fieldCheckbox("checkUpdateOnStartup", "起動時に新しい版があるか確認する",
-          "起動するたびに、配布元へ新しい版があるかを尋ねます。見つかったときは画面上部でお知らせします。下の「新しい版を自動で入れる」をオンにしない限り、断りなく更新することはありません。オフにすると、下の「更新を確認」を押したとき以外は通信しません。")}
+          "起動するたびに、配布元へ新しい版があるかを尋ねます。見つかったときは画面右下でお知らせします。下の「新しい版を自動で入れる」をオンにしない限り、断りなく更新することはありません。オフにすると、下の「更新を確認」を押したとき以外は通信しません。")}
         ${fieldCheckbox("autoUpdate", "新しい版を自動で入れる",
           "起動時の確認で新しい版が見つかったら、裏でダウンロードしておき、Paneのウィンドウをすべて閉じたときに入れ替えます。作業中のウィンドウが閉じられることはありません。次に開いたときに「更新しました」とお知らせします。起動時の確認がオフのときは働きません。")}
         <div data-update-section>${updateSectionHtml()}</div>

@@ -2293,6 +2293,27 @@ internal sealed class MainForm : Form
                     return;
                 }
             }
+            else if (!string.Equals(_suppressedExternalChangePath, targetPath, StringComparison.OrdinalIgnoreCase)
+                && ExternalFileStateLogic.ChangedSinceKnown(_knownContentPath, _knownContentHash, targetPath, TryHashFile(targetPath)))
+            {
+                // 開いた(保存した)後に、他のアプリが中身を書き換えている。監視が取りこぼしても
+                // (監視を張れない場所・置き換え型の保存など)、黙って上書きしない(2026-11 の総点検2)。
+                // 「再読み込みしない」をすでに選んでいれば、承知のうえなので尋ねない。
+                Logger.Write($"保存前の確認: 開いた後に外部で変更されている ({PrivacyLogFormatter.ShortenPath(targetPath)})");
+                DialogResult changedChoice = PaneDialog.Show(
+                    this,
+                    ExternalFileStateLogic.BuildOverwriteChangedMessage(Path.GetFileName(targetPath)),
+                    "Pane",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    defaultToCancel: true);
+                if (changedChoice != DialogResult.Yes)
+                {
+                    CompleteSave(ok: false);
+                    PostToWeb(new { type = "save-result", ok = false, canceled = true });
+                    return;
+                }
+            }
         }
 
         // 選んでいる文字コード(通常はShift_JIS)で表現できない文字が含まれる場合、
@@ -3678,6 +3699,17 @@ internal sealed class MainForm : Form
         string newFullPath = e.FullPath;
         BeginInvoke(new MethodInvoker(() =>
         {
+            // 別の名前のファイルが、開いているファイルの名前へ変えられた(=中身が入れ替わった)。
+            // 多くのエディタは一時ファイルに書いてから元の名前へ置き換えて保存する。これを
+            // 「名前を変えられた」と扱っていたため、外部の変更に気づかず、こちらの保存で
+            // 黙って上書きしていた(2026-11 の総点検2)。中身の変更として扱う。
+            if (_currentPath is not null && string.Equals(newFullPath, _currentPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _externalChangePending = true;
+                _externalChangeDebounceTimer.Stop();
+                _externalChangeDebounceTimer.Start();
+                return;
+            }
             _externalRemovalPending = true;
             _externalRenamedToPath = newFullPath;
             _externalChangeDebounceTimer.Stop();
@@ -3713,6 +3745,13 @@ internal sealed class MainForm : Form
         // という3つの筋の悪さがあった。実際に必要になるのは上書き保存の直前だけなので、
         // そこで確認する形へ移した(HandleSaveRequestCoreとExternalFileStateLogic参照)。
         // ここは、名前の変更先を覚えておくことと、記録を1行残すことだけを行う。
+        // 消されたように見えても、今その名前のファイルが在るなら、作り直された(削除してから
+        // 書き直す形の保存)ということ。中身の変更として確かめる(2026-11 の総点検2)。
+        if (_externalRemovalPending && _currentPath is not null && _externalRenamedToPath is null && File.Exists(_currentPath))
+        {
+            _externalRemovalPending = false;
+            _externalChangePending = true;
+        }
         if (_externalRemovalPending)
         {
             _externalRemovalPending = false;

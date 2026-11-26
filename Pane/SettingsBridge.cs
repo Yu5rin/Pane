@@ -317,6 +317,15 @@ internal static class SettingsBridge
             var progress = new Progress<int>(p => Report("downloading", $"ダウンロード中… {p}%", p));
             string zipPath = await UpdateService.DownloadAsync(info, progress, CancellationToken.None);
 
+            // ダウンロードの間(数十秒かかることがある)に書いた分を確かめ直す。最初の確認だけでは、
+            // その間の編集が、再起動のときに確認なしで捨てられていた(2026-11 の総点検2)。
+            // 入れ替えの前に止めるので、今の版のまま使い続けられる。
+            if (hasUnsavedDocuments())
+            {
+                Report("error", "ダウンロード中に変更されたため、更新を止めました。保存してから、もう一度「更新する」を押してください。");
+                return;
+            }
+
             Report("applying", "入れ替えています…");
             string newExe = UpdateService.ApplyUpdate(zipPath);
 
