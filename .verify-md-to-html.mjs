@@ -52,6 +52,8 @@ check("- a\n\n  > 引用", "<li>a<blockquote><p>引用</p></blockquote></li>");
 check("押す <kbd>Ctrl</kbd> と<br>改行", "押す <kbd>Ctrl</kbd> と<br>改行");
 check('文 <span onclick="x">a</span>', "&lt;span onclick=");
 ok("ブロックHTMLは(Nodeでは)消えずに文字で残る", render("<details>\n<summary>s</summary>\n中身\n</details>").includes("中身"), render("<details>\n<summary>s</summary>\n中身\n</details>"));
+check("---\ntitle: x\n# yaml\n---\n\n本文", "<p>本文</p>");
+ok("フロントマターは書き出さない", !render("---\ntitle: x\n# yaml\n---\n\n本文").includes("title"), render("---\ntitle: x\n# yaml\n---\n\n本文"));
 
 console.log(`\nNG=${ng}`);
 process.exit(ng ? 1 : 0);

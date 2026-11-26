@@ -264,11 +264,20 @@ internal sealed class PaneApplicationContext : ApplicationContext
             string label = snapshot.OriginalPath ?? "無題";
             // この時点ではまだ本体ウィンドウが1つも無い(起動直後)ため、オーナー無しで表示する
             // (PaneDialog.Show側は画面中央にフォールバックする)。
+            // 「いいえ」は、未保存の内容を捨てる側。打ち始めていた手が Esc や N に当たっただけで消えて
+            // いたので(2026-11 の総点検2)、Esc・×は「キャンセル」(今は開かずに残し、次の起動でまた尋ねる)
+            // にし、捨てるのは「いいえ」をはっきり選んだときだけにする。
             DialogResult choice = PaneDialog.Show(
-                $"前回のPaneは正常に終了しませんでした。\n未保存の内容を復元しますか?\n\n{label}",
+                $"前回のPaneは正常に終了しませんでした。\n未保存の内容を復元しますか?\n\n{label}" +
+                "\n\n「いいえ」で内容を破棄します。「キャンセル」なら今は開かずに残し、次の起動でもう一度尋ねます。",
                 "Pane - 復元の確認",
-                MessageBoxButtons.YesNo,
+                MessageBoxButtons.YesNoCancel,
                 MessageBoxIcon.Warning);
+            if (choice != DialogResult.Yes && choice != DialogResult.No)
+            {
+                Logger.Write($"復元の確認: 見送り(次の起動でまた尋ねる): {(snapshot.OriginalPath is null ? "無題" : PrivacyLogFormatter.ShortenPath(snapshot.OriginalPath))}");
+                continue;
+            }
 
             if (choice == DialogResult.Yes)
             {

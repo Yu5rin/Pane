@@ -1031,14 +1031,27 @@ function updateStatusMode() {
 // 浮かべるだけの非侵襲的な表示にする。「切り替えた」通知は8秒程度で自動的に消えるが、
 // 「提案」は(取りこぼさないよう)ユーザーが閉じる/選ぶまで残す。----
 let adBannerHideTimer = null;
-function hideAdBanner() {
+// 利用者が閉じるまで残すお知らせ(更新のお知らせ)。帯は1枚しか無いので、その表示中に
+// 自動判定の通知などが来ると置き換わって消え、次の起動まで「更新する」が押せなくなっていた
+// (2026-11 の総点検2)。ほかの通知が消えたら、これを出し直す。
+let adBannerSticky = null; // { text, opts }
+let adBannerShowingSticky = false;
+function clearAdBanner() {
   if (adBannerHideTimer) { clearTimeout(adBannerHideTimer); adBannerHideTimer = null; }
   adBanner.hidden = true;
   adBannerAction.hidden = true;
   adBannerAction.onclick = null;
 }
-function showAdBanner(text, { actionLabel, onAction, autoHideMs } = {}) {
-  hideAdBanner();
+function hideAdBanner() {
+  clearAdBanner();
+  if (adBannerShowingSticky) { adBannerSticky = null; adBannerShowingSticky = false; return; }
+  if (adBannerSticky) showAdBanner(adBannerSticky.text, adBannerSticky.opts);
+}
+function showAdBanner(text, opts = {}) {
+  const { actionLabel, onAction, autoHideMs, sticky } = opts;
+  clearAdBanner();
+  if (sticky) adBannerSticky = { text, opts };
+  adBannerShowingSticky = !!sticky;
   adBannerText.textContent = text;
   if (actionLabel) {
     adBannerAction.hidden = false;
@@ -1070,7 +1083,7 @@ async function applyUpdateFromBanner(latestVersion) {
   });
   if (!ok) {
     // やめたときは、お知らせを出し直す(押したら消えて、二度と押せなくなるのを避ける)。
-    showAdBanner(`新しい版 ${version} があります`, { actionLabel: "更新する", onAction: () => applyUpdateFromBanner(latestVersion) });
+    showAdBanner(`新しい版 ${version} があります`, { sticky: true, actionLabel: "更新する", onAction: () => applyUpdateFromBanner(latestVersion) });
     return;
   }
   updateFromBannerInProgress = true;
@@ -3089,6 +3102,7 @@ async function handleHostMessage(msg) {
       // 利用者が「更新する」を押したときにだけ始める。
       // 自動では消さない(autoHideMsを渡さない)。見逃すと次に気づくのは次の起動になるため。
       showAdBanner(msg.message || `新しい版 ${msg.latestVersion || ""} があります`, {
+        sticky: true,
         actionLabel: "更新する",
         onAction: () => applyUpdateFromBanner(msg.latestVersion),
       });

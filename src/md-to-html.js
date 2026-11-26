@@ -1,7 +1,7 @@
 // MarkdownをHTMLへ変換する。仕様書 E-05(HTMLとしてコピー)・X-02/X-03(HTMLエクスポート)で
 // 共用する。ライブプレビューと同じ構文木(@lezer/markdown)を辿るため、見た目の解釈は一致する。
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EMOJI_SHORTCODES, extractHeadings } from "./markdown-extras.js";
+import { EMOJI_SHORTCODES, extractHeadings, frontmatterEnd } from "./markdown-extras.js";
 import { renderMathToHtml } from "./math.js";
 // 生HTML(html-sanitize.js)と同じ基準でURLの安全性を検証する。Markdown記法の
 // リンク・画像だけ検証対象外というのは一貫性を欠くため、判定ロジックを共用する。
@@ -453,9 +453,12 @@ export function renderMarkdownToHtml(state, { from = 0, to = state.doc.length } 
   const tree = ensureSyntaxTree(state, to, ENSURE_PARSE_TIMEOUT_MS) ?? syntaxTree(state);
   const mathBlocks = opts?.collectMath ? findMathBlockRanges(doc) : [];
   let html = "";
+  // 先頭のフロントマター(設定の書き込み)は本文ではないので書き出さない(2026-11 の総点検2。
+  // 以前は <hr><h2>title: x ---</h2> のように出ていた)
+  const fmEnd = frontmatterEnd(doc);
   let node = tree.topNode.firstChild;
   while (node) {
-    if (node.to <= from || node.from >= to) { node = node.nextSibling; continue; }
+    if (node.to <= from || node.from >= to || node.from <= fmEnd) { node = node.nextSibling; continue; }
     const mb = mathBlocks.find((b) => node.from >= b.from && node.from < b.to);
     if (mb) {
       // 数式ブロックの範囲は構文木上どう解釈されていても(通常は1つのParagraphになる)まとめて

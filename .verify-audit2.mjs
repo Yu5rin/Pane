@@ -92,6 +92,26 @@ try {
   await page.waitForTimeout(200);
   ok("(D) コードの文書では変換せず、プレーンテキストが入る", (await doc()) === "// top\nconst a = 1;\nx", await doc());
 
+  // (F) 中の不具合
+  const type = async (t) => { for (const ch of t) await page.keyboard.type(ch); };
+  await page.evaluate(() => window.__paneDebugEditor.setFileMode("a.md"));
+  await page.waitForTimeout(200);
+  await setDoc("");
+  await page.keyboard.press("Control+b"); await type("太字"); await page.keyboard.press("Control+b"); await type("後");
+  ok("(F) Ctrl+B→打つ→Ctrl+B で閉じ記号の外へ出る(「****」が増えない)", (await doc()) === "**太字**後", await doc());
+  await setDoc("");
+  await page.keyboard.press("Control+b"); await page.keyboard.press("Control+b");
+  ok("(F) 何も打たずにもう一度 Ctrl+B を押すと、記号の組を外す", (await doc()) === "", await doc());
+  await setDoc("");
+  await type("cd ~/.config"); await page.keyboard.press("Enter");
+  ok("(F) 「cd ~/.config」+改行で、閉じの「~」が残らない", (await doc()).startsWith("cd ~/.config\n") && !(await doc()).includes("config~"), await doc());
+  await setDoc("");
+  await type("ls *.txt を実行");
+  ok("(F) 「ls *.txt を実行」の末尾に「*」が残らない", (await doc()) === "ls *.txt を実行", await doc());
+  await setDoc("");
+  await type("*強調*です");
+  ok("(F) 「*強調*」はこれまでどおり対になる", (await doc()) === "*強調*です", await doc());
+
   // (E)
   const bg = await page.evaluate(() => {
     document.documentElement.setAttribute("data-theme", "dark");

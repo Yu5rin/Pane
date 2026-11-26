@@ -69,15 +69,28 @@ export function plainHeadingText(text) {
     .trim();
 }
 
+// 先頭のYAML Front Matter(「---」の行から次の「---」の行まで)の終わりの位置。無ければ -1。
+// editor.js の computeFrontmatter と同じ判定(上限1000行)。この中は見出しや段落ではない。
+export function frontmatterEnd(doc) {
+  if (doc.lines < 1 || doc.line(1).text !== "---") return -1;
+  const cap = Math.min(doc.lines, 1000);
+  for (let n = 2; n <= cap; n++) if (doc.line(n).text === "---") return doc.line(n).to;
+  return -1;
+}
+
 export function extractHeadings(state, maxLevel = outlineMaxLevel, { ensureFullParse = false } = {}) {
   const headings = [];
   const slugCount = new Map();
   const tree = ensureFullParse
     ? (ensureSyntaxTree(state, state.doc.length, ENSURE_PARSE_TIMEOUT_MS) ?? syntaxTree(state))
     : syntaxTree(state);
+  // フロントマターの中の「# コメント」や、閉じの「---」で下線つきの見出しに見える行は、見出しではない
+  // (以前はアウトライン・目次・書き出しに出ていた。2026-11 の総点検2)
+  const fmEnd = frontmatterEnd(state.doc);
   tree.iterate({
     enter: (node) => {
       if (!HEADING_NODE_NAMES.has(node.name)) return;
+      if (node.from <= fmEnd) return false;
       const level = headingLevel(node.name);
       if (level > maxLevel) return false; // chapterLevelInOutlineより深い見出しはアウトラインに出さない
       let text;

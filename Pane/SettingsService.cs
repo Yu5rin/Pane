@@ -32,8 +32,13 @@ internal static class SettingsService
     /// settingsスナップショット(settingsFilePath)から参照する。</summary>
     public static string SettingsFilePath => SettingsPath;
 
-    public static AppSettings Load()
+    public static AppSettings Load() => Load(out _);
+
+    /// <param name="unreadable">ファイルは在るのに読めなかった(ほかのアプリが開いている等)ときtrue。
+    /// <see cref="Update"/>は、このとき既定値で上書きしないために使う。</param>
+    private static AppSettings Load(out bool unreadable)
     {
+        unreadable = false;
         AppSettings settings;
         try
         {
@@ -70,6 +75,7 @@ internal static class SettingsService
             // 初回起動(ファイル未作成)やアクセス不可。中身を読めていないため「壊れていた」とは
             // 言えず、退避のしようも無いので、従来どおり無言で既定値から始める。
             settings = new AppSettings();
+            unreadable = ex is not (FileNotFoundException or DirectoryNotFoundException) && File.Exists(SettingsPath);
         }
         // 【実バグ③の修正】Load()はアプリ内の至る所(MainForm/SettingsWindow/SettingsBridge等)
         // から都度呼ばれ、ここが「設定ファイルをデシリアライズした直後・アプリが使い始める前」の
@@ -121,6 +127,17 @@ internal static class SettingsService
         }
     }
 
+    /// <summary>
+    /// ディスクまで書き切ってから戻る(Flush(true))。置き換え(File.Move)の記録だけが先にディスクへ届き、
+    /// 中身がまだ届いていないうちに電源が落ちると、再起動後のファイルが空やゼロ埋めになる(2026-11 の総点検2)。
+    /// </summary>
+    internal static void WriteThrough(string path, byte[] bytes)
+    {
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        fs.Write(bytes, 0, bytes.Length);
+        fs.Flush(flushToDisk: true);
+    }
+
     public static void Save(AppSettings settings)
     {
         try
@@ -133,7 +150,7 @@ internal static class SettingsService
             // プロセスが落ちても、被害は一時ファイルどまりで settings.json 自体は旧内容のまま
             // 残るため、設定ファイルが半端な内容で壊れることはない。
             string tempPath = Path.Combine(SettingsDirectory, $".settings.json.tmp-{Guid.NewGuid():N}");
-            File.WriteAllText(tempPath, json);
+            WriteThrough(tempPath, System.Text.Encoding.UTF8.GetBytes(json));
             File.Move(tempPath, SettingsPath, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -161,7 +178,21 @@ internal static class SettingsService
     {
         lock (UpdateLock)
         {
-            AppSettings latest = Load();
+            // settings.json が在るのに読めないとき(同期ソフト・バックアップ・ウイルス対策が開いている瞬間)は、
+            // 少し待って読み直す。それでも読めなければ保存をやめる。以前は「読めない」を「無い」と同じに
+            // 扱い、既定値に今回の変更だけを足して上書きしていたので、最近使ったファイル・キーの割り当て・
+            // 関連付けの一覧などがまとめて消えた(2026-11 の総点検2)。
+            AppSettings latest = Load(out bool unreadable);
+            for (int retry = 0; unreadable && retry < 5; retry++)
+            {
+                Thread.Sleep(100);
+                latest = Load(out unreadable);
+            }
+            if (unreadable)
+            {
+                Logger.Warn("SettingsService.Update: settings.jsonを読めないため、今回の設定の変更は保存しない(既定値での上書きを避ける)");
+                return;
+            }
             modify(latest);
             Save(latest);
         }

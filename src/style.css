@@ -790,7 +790,9 @@ body.export-layout .cm-scroller { overflow: visible !important; }
    維持したまま入力欄が実用にならないほど狭くなるためここでは行わない)。 */
 /* UI点検第2弾 指摘12の修正: 角丸10px→8px(仕様書10.1節「ウィンドウ枠は8px」)。 */
 .search-panel { position: absolute; top: 8px; right: 16px; max-width: calc(100% - 32px); z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-pop); padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-.search-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+/* 入らないときは折り返す。最小の窓(640x480)でサイドバーを開くと、入力欄を最小まで縮めても
+   ボタンが入らず、「閉じる」が窓の外へ出ていた(2026-11 の総点検2)。 */
+.search-row { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
 .search-row input[type="text"] { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12.5px; background: var(--paper); color: var(--ink); width: 190px; flex: 1 1 60px; min-width: 60px; }
 .search-row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .search-count { font-size: 11px; color: var(--ink-sub); min-width: 52px; text-align: center; font-family: var(--font-mono); flex: none; }
@@ -1367,6 +1369,7 @@ html[data-theme="dark"] .cm-search-ruler-mark.is-active {
 .kb-row.conflict .kb-cell-shortcut kbd { color: var(--danger); border-color: var(--danger); }
 .kb-cell-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-cell-shortcut { flex: none; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-sub); }
+.kb-cell-fixed { margin-left: 6px; font-family: var(--font-body); font-size: 11px; color: var(--ink-mute); }
 .kb-cell-warn { flex: none; font-size: 11px; color: var(--danger); font-weight: 700; }
 
 /* ホバー装飾はホバー可能なデバイス限定(既存の方針、上のホバー専用ブロックを参照) */
@@ -1982,5 +1985,14 @@ html mark.help-search-hit.current { background: var(--accent-ink); color: var(--
   position: absolute;
   color: var(--ink-mute);
   pointer-events: none;
-  white-space: nowrap;
+  /* 折り返す。nowrap だと狭いウィンドウで案内(約650px)が本文の幅を越え、横のスクロールバーが
+     出ていた(2026-11 の総点検2)。右端は .cm-content の内側の余白に合わせる。 */
+  white-space: normal;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  padding-left: inherit;
+  padding-right: inherit;
 }
+/* 上の left/right を .cm-content の幅に合わせるため(案内が出ている空の文書のときだけ) */
+#cm-host .cm-content[data-empty-hint] { position: relative; }

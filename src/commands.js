@@ -429,6 +429,22 @@ export const MENU_LAYOUT = {
   ],
 };
 
+// コマンドのidから、メニューに出している名前(付け替えた名前と、入っているサブメニューの名前)へ。
+// コマンドパレットの絞り込みで使う。
+const MENU_ITEM_LABELS = (() => {
+  const map = new Map();
+  const add = (id, label) => { if (!map.has(id)) map.set(id, []); if (label) map.get(id).push(label); };
+  const walk = (items, parents) => {
+    for (const it of items) {
+      if (typeof it === "string") { if (it !== "---") add(it, parents.join(" ")); }
+      else if (Array.isArray(it)) add(it[0], [...parents, it[1]].join(" "));
+      else if (it && it.items) walk(it.items, [...parents, it.label]);
+    }
+  };
+  for (const items of Object.values(MENU_LAYOUT)) walk(items, []);
+  return map;
+})();
+
 // 配置の定義から、そのメニューに並べる項目を作る。返すのはコマンドと同じ形のオブジェクト
 // (id・label・shortcut・enabled・checked・run・separatorAfter・submenu)で、描く側
 // (ネイティブのポップアップ・HTMLのドロップダウン)はどちらもこれをそのまま読む。
@@ -989,9 +1005,14 @@ export function initCommandPalette(root, commands, ctx) {
     }
     function filter() {
       const q = input.value.trim().toLowerCase();
+      const menuName = (c) => (MENU_ITEM_LABELS.get(c.id) ?? []).join(" ").toLowerCase();
       // メニューの名前は、画面に出している日本語(「ファイル」「表示」など)で探せるようにする。
       // 以前は内部の英語の名前(File・View)としか比べておらず、「表示」と打っても絞り込めなかった。
+      // メニューで付け替えている名前(「文字を大きく」「リンクを挿入…」、入っているサブメニューの名前)でも
+      // 探せるようにする(以前はパレットの名前としか比べず、メニューに出ている名前で見つからなかった。
+      // 2026-11 の総点検2)。
       filtered = !q ? available : available.filter((c) => c.label.toLowerCase().includes(q)
+        || menuName(c).includes(q)
         || (MENU_LABELS[c.menu] ?? c.menu ?? "").toLowerCase().includes(q)
         || (c.shortcut || c.keyHint || "").toLowerCase().includes(q));
       sel = 0;

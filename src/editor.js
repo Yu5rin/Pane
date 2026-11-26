@@ -313,11 +313,26 @@ function autolinkHref(text) {
 // ---- 参照リンク(M-16)・脚注定義(M-09)の収集 ----
 // LinkReference ノード([id]: url 形式)を1回の木走査でまとめて集める。
 // ラベルが "^" で始まるものは脚注定義として区別する。
+// 構文木ごとに覚えておく。ライブプレビューはカーソルを動かすたびに作り直すが、そのたびに文書全体を
+// たどっていた(1万行でカーソル移動1回あたり約3ms。仕様書 8.2。2026-11 の総点検2)。
+// 文書もパースの進み具合も変わらなければ構文木は同じものなので、そのときは前の結果を使う。
+const referencesCache = new WeakMap();
+const REFERENCE_LEAF_BLOCKS = new Set(["Paragraph", "ATXHeading1", "ATXHeading2", "ATXHeading3", "ATXHeading4", "ATXHeading5", "ATXHeading6", "SetextHeading1", "SetextHeading2", "FencedCode", "CodeBlock", "Table", "HTMLBlock"]);
 function collectReferences(state) {
+  const tree = syntaxTree(state);
+  const cached = referencesCache.get(tree);
+  if (cached) return cached;
+  const result = collectReferencesUncached(state, tree);
+  referencesCache.set(tree, result);
+  return result;
+}
+function collectReferencesUncached(state, tree) {
   const links = new Map();
   const footnotes = new Map();
-  syntaxTree(state).iterate({
+  tree.iterate({
     enter: (node) => {
+      // 参照の定義はブロックとして現れる。段落・見出し・コード・表の中(インライン)へは降りない
+      if (REFERENCE_LEAF_BLOCKS.has(node.name)) return false;
       if (node.name !== "LinkReference") return;
       const labelNode = node.node.getChild("LinkLabel");
       if (!labelNode) return false;
@@ -1341,11 +1356,13 @@ const livePreview = ViewPlugin.fromClass(class {
         if (toggles.inlineMath) {
           // インライン数式 $...$(仕様書 M-23)。前後に空白を含まない($による通貨表記等との
           // 誤爆を避けるTypora同様のルール)。カーソルが乗っている間は生記法のまま。
-          let mm; const mre = /\$([^\s$](?:[^$\n]*[^\s$])?)\$/g;
+          // 行の中の「$$...$$」も1つの数式として扱う(以前は内側の「$...$」だけが数式になり、
+          // 前後に「$」が1つずつ残っていた。2026-11 の総点検2)。独立行の $$ は数式ブロックの側。
+          let mm; const mre = /\$\$([^$\n]+?)\$\$|\$([^\s$](?:[^$\n]*[^\s$])?)\$/g;
           while ((mm = mre.exec(line.text))) {
             const mf = line.from + mm.index, mt = mf + mm[0].length;
             if (!cursorInside(view, mf, mt)) {
-              marks.push({ from: mf, to: mt, deco: Decoration.replace({ widget: new MathWidget(mm[1], false, "off") }) }); // インライン数式は自動採番の対象外(Typora準拠)
+              marks.push({ from: mf, to: mt, deco: Decoration.replace({ widget: new MathWidget((mm[1] ?? mm[2]).trim(), false, "off") }) }); // インライン数式は自動採番の対象外(Typora準拠)
             }
           }
         }
@@ -2467,13 +2484,21 @@ function findParagraphSoftBreaks(state) {
   });
   return breaks;
 }
+// 段落内の改行の一覧は、設定が "ignore" のときにしか使わない。以前は既定の "preserve" でも
+// 入力のたびに文書全体をたどって作っていた(1万行で1打鍵あたり数ms。仕様書 8.2。2026-11 の総点検2)。
+const softBreaksWanted = (state) => (state.field(extTogglesField, false) ?? DEFAULT_EXT_TOGGLES).whitespaceWhenWriting === "ignore";
 const softBreaksField = StateField.define({
-  create: (state) => findParagraphSoftBreaks(state),
-  update: (v, tr) => (tr.docChanged ? findParagraphSoftBreaks(tr.state) : v),
+  create: (state) => (softBreaksWanted(state) ? findParagraphSoftBreaks(state) : null),
+  update: (v, tr) => {
+    const wanted = softBreaksWanted(tr.state);
+    if (!wanted) return null;
+    if (tr.docChanged || v === null) return findParagraphSoftBreaks(tr.state);
+    return v;
+  },
 });
 function buildSoftBreakDeco(state, breaks) {
   const toggles = state.field(extTogglesField, false) ?? DEFAULT_EXT_TOGGLES;
-  if (toggles.whitespaceWhenWriting !== "ignore") return Decoration.none;
+  if (toggles.whitespaceWhenWriting !== "ignore" || !breaks) return Decoration.none;
   const focused = state.field(focusField, false) ?? false;
   const sel = state.selection.main;
   const decos = [];
@@ -3019,10 +3044,61 @@ function markerRuns(state, pos, ch) {
   while (off + after < line.text.length && line.text[off + after] === ch) after++;
   return { before, after };
 }
+// 自動で入れた閉じ記号のうち、まだ乗り越えられていないもの({ pos, len, ch })。
+// 【なぜ要るか】(2026-11 の総点検2) 「cd ~/.config」「ls *.txt を実行」「rm -rf *」のように、
+// 対にならない使い方の記号でも閉じ記号が入り、末尾に「~」「*」が残っていた。
+// 自分で入れた閉じ記号を覚えておき、乗り越えられないまま
+//   ・その直前で空白を打った(「*a *」は強調にならないので閉じ記号として要らない)
+//   ・その直前で改行した、またはカーソルが別の行へ移った
+// ときに取り除く。乗り越えた・自分で消したときは忘れる。
+const setPendingCloser = StateEffect.define();
+const pendingCloserField = StateField.define({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setPendingCloser)) return e.value;
+    if (!v) return null;
+    if (tr.docChanged) {
+      const pos = tr.changes.mapPos(v.pos, 1, MapMode.TrackDel);
+      if (pos === null) return null;
+      v = { ...v, pos };
+    }
+    return tr.state.sliceDoc(v.pos, v.pos + v.len) === v.ch.repeat(v.len) ? v : null;
+  },
+});
+const pendingCloserCleanup = EditorState.transactionFilter.of((tr) => {
+  const p = tr.startState.field(pendingCloserField, false);
+  if (!p) return tr;
+  if (tr.startState.sliceDoc(p.pos, p.pos + p.len) !== p.ch.repeat(p.len)) return tr;
+  let drop = false;
+  if (tr.docChanged) {
+    // 閉じ記号の直前での改行
+    tr.changes.iterChanges((fromA, _toA, _fromB, _toB, ins) => {
+      if (fromA === p.pos && ins.toString().includes("\n")) drop = true;
+    });
+  } else if (tr.selection) {
+    // カーソルが別の行へ移った
+    const head = tr.newSelection.main.head;
+    drop = tr.startState.doc.lineAt(head).number !== tr.startState.doc.lineAt(p.pos).number;
+  }
+  if (!drop) return tr;
+  const pos = tr.changes.mapPos(p.pos, 1);
+  return [tr, { changes: { from: pos, to: pos + p.len }, effects: setPendingCloser.of(null), sequential: true }];
+});
+
 const mdAutoPairInputHandler = EditorView.inputHandler.of((view, from, to, text) => {
   const toggles = view.state.field(extTogglesField, false) ?? DEFAULT_EXT_TOGGLES;
   if (toggles.autoPairMarkdown === false) return false;
   if (text === " " && from === to && from > 0) {
+    const pending = view.state.field(pendingCloserField, false);
+    if (pending && pending.pos === from && !inCodeContext(view.state, from)) {
+      view.dispatch({
+        changes: { from, to: from + pending.len, insert: " " },
+        selection: { anchor: from + 1 },
+        effects: setPendingCloser.of(null),
+        userEvent: "input.type",
+      });
+      return true;
+    }
     // 決まり4: 空の対の中の空白。
     const ch = view.state.sliceDoc(from - 1, from);
     if (!(ch in MD_PAIR_CHARS)) return false;
@@ -3067,17 +3143,30 @@ const mdAutoPairInputHandler = EditorView.inputHandler.of((view, from, to, text)
   }
   if (runs.after > 0 && !emptyPair) {
     // カーソルの直後に既に同じ閉じマーカーがある → 追加せずその上を乗り越えるだけ(closeBrackets同様)
-    view.dispatch({ selection: { anchor: to + text.length }, userEvent: "input.type" });
+    view.dispatch({ selection: { anchor: to + text.length }, effects: setPendingCloser.of(null), userEvent: "input.type" });
     return true;
   }
   if (runs.after === 0) {
     if (runs.before > 0) return false; // 決まり3: 手で打っている途中
+    // 同じ行の手前に、まだ閉じていない開き側がある(記号の並びが奇数個)なら、これは閉じ側。
+    // 行頭の「*」は箇条書きと見て対にしないため、「*強調」のあとの「*」が新しい対を開き、
+    // 「*強調*です*」と余る記号が入っていた(2026-11 の総点検2)。
+    {
+      const line = view.state.doc.lineAt(from);
+      const head = line.text.slice(0, from - line.from).replace(/^\s*[*+-]\s/, "");
+      const esc = text.replace(/[*]/g, "\\$&");
+      if (((head.match(new RegExp(`${esc}+`, "g")) || []).length) % 2 === 1) return false;
+    }
     if (/[A-Za-z0-9]/.test(view.state.sliceDoc(Math.max(0, from - 1), from))) return false; // 決まり1
   }
   // ここへ来るのは、新しく開く場合か、空の対の中(決まり2。両側へ1つずつ足す)。
+  const closer = MD_PAIR_CHARS[text];
+  const prevPending = view.state.field(pendingCloserField, false);
+  const len = (prevPending && prevPending.pos === from && prevPending.ch === closer ? prevPending.len : 0) + closer.length;
   view.dispatch({
-    changes: { from, to, insert: text + MD_PAIR_CHARS[text] },
+    changes: { from, to, insert: text + closer },
     selection: { anchor: from + text.length },
+    effects: setPendingCloser.of({ pos: from + text.length, len, ch: closer[0] }),
     userEvent: "input.type",
   });
   return true;
@@ -3247,7 +3336,7 @@ const emptyDocHint = EditorView.contentAttributes.compute(["doc"], (state) => (s
 const livePreviewExt = () => [
   emptyDocHint,
   livePreview, skipHiddenTailMarks, tablePasteGuard, codeCopyHotBlockField, tableBlocksField, tableField, tableAutoFormat,
-  frontmatterField, tocParasField, tocField, extTogglesField,
+  frontmatterField, tocParasField, tocField,
   // 外部リソース読み込み同意(remoteConsentField、上記コメント参照)。extTogglesFieldと違い
   // setValue()側では復元しない(文書が入れ替わるたび既定のfalse/空集合に戻すのが仕様のため)。
   remoteConsentField,
@@ -3257,6 +3346,7 @@ const livePreviewExt = () => [
   htmlBlocksField, htmlBlockDecoField, // ブロックHTML(M-27〜M-31)
   softBreaksField, softBreakDecoField, // 仕様書 whitespaceWhenWriting="ignore"
   smartTypingInputHandler, // 仕様書 smartQuotes="input"・smartDashes
+  pendingCloserField, pendingCloserCleanup, // 自動で入れた閉じ記号の後始末(pendingCloserField参照)
   mdAutoPairInputHandler, // 仕様書 autoPairMarkdown("="は含まない。理由はMD_PAIR_CHARS定義部参照)
   defaultCodeLangInputHandler, // 仕様書 defaultCodeLanguage・defaultCodeLanguageApplyWhen="markdown"
   codeCopyHoverPlugin, // 依頼①: コードコピーボタンのホバー表示
@@ -4875,6 +4965,10 @@ export function createEditor(parent, { onChange, onFocus, onBlur, onCompositionC
         // 常に存在させる必要があるため、livePreviewComp(モード切替のたびreconfigureされる
         // Compartment)には載せず、ここに常設で置く。
         focusField, focusNotifier,
+        // Markdownまわりの設定(extTogglesField)も常設にする。以前はlivePreviewExtの中にあり、
+        // 「記法を隠さない表示」(Ctrl+/)やコードの文書を開いたときに外されて、戻すと既定値で
+        // 作り直されていた(箇条書きの記号や自動補完の設定が効かなくなる。2026-11 の総点検2)。
+        extTogglesField,
         // 絵文字ショートコード補完(不具合5の修正: emojiCompletionSource定義部のコメント参照)。
         // completionStateフィールドがモード切替のたびに消えないよう常設にし、
         // markdownモード以外での候補表示はsource関数側(emojiCompletionSource)で抑止する。
@@ -6080,11 +6174,46 @@ function applyMdAction(view, action, payload) {
         }
       }
     }
-    // 選択が無い(カーソルのみ)場合は既存仕様どおり常に挿入する(マーカーの内側にカーソルを
+    // 選択が無く、カーソルの直後がちょうど同じ閉じ記号なら、挿入せずに記号の外へ出る
+    // (Ctrl+B→「太字」→Ctrl+B→続きを打つ、という使い方。以前は「**太字**後****」と記号が
+    // 増えていた。2026-11 の総点検2)。打つ前にもう一度押した(「**|**」)なら、その組を外す。
+    if (s === e && w.split("").every((c) => c === w[0])) {
+      const after = state.sliceDoc(s, Math.min(state.doc.length, s + w.length + 1));
+      if (after.startsWith(w) && runLenForward(after, 0, w[0]) === w.length) {
+        const before = state.sliceDoc(Math.max(0, s - w.length - 1), s);
+        if (before.endsWith(w) && runLenBackward(before, before.length, w[0]) === w.length) {
+          view.dispatch({ changes: { from: s - w.length, to: s + w.length, insert: "" }, selection: { anchor: s - w.length }, userEvent: MD_ACTION_USER_EVENT });
+        } else {
+          view.dispatch({ selection: { anchor: s + w.length }, userEvent: "select" });
+        }
+        return;
+      }
+    }
+    // それ以外の選択が無い(カーソルのみ)場合は既存仕様どおり挿入する(マーカーの内側にカーソルを
     // 置いて続けて入力できるようにする、という従来の挙動を変えない)。
     view.dispatch({ changes: [{ from: s, insert: w }, { from: e, insert: w }], selection: { anchor: s + w.length, head: e + w.length }, userEvent: MD_ACTION_USER_EVENT });
   };
-  const wrapPair = (open, close) => view.dispatch({ changes: [{ from: s, insert: open }, { from: e, insert: close }], selection: { anchor: s + open.length, head: e + open.length }, userEvent: MD_ACTION_USER_EVENT });
+  const wrapPair = (open, close) => {
+    // 下線(<u></u>)も、太字などと同じく外せるようにする(以前は選択して押すと <u><u>b</u></u> になった)。
+    if (s !== e && selText.length >= open.length + close.length && selText.startsWith(open) && selText.endsWith(close)) {
+      const inner = selText.slice(open.length, selText.length - close.length);
+      view.dispatch({ changes: { from: s, to: e, insert: inner }, selection: { anchor: s, head: s + inner.length }, userEvent: MD_ACTION_USER_EVENT });
+      return;
+    }
+    if (state.sliceDoc(Math.max(0, s - open.length), s) === open && state.sliceDoc(e, e + close.length) === close) {
+      if (s === e) {
+        view.dispatch({ changes: { from: s - open.length, to: e + close.length, insert: "" }, selection: { anchor: s - open.length }, userEvent: MD_ACTION_USER_EVENT });
+      } else {
+        view.dispatch({ changes: [{ from: s - open.length, to: s, insert: "" }, { from: e, to: e + close.length, insert: "" }], selection: { anchor: s - open.length, head: e - open.length }, userEvent: MD_ACTION_USER_EVENT });
+      }
+      return;
+    }
+    if (s === e && state.sliceDoc(s, s + close.length) === close) {
+      view.dispatch({ selection: { anchor: s + close.length }, userEvent: "select" });
+      return;
+    }
+    view.dispatch({ changes: [{ from: s, insert: open }, { from: e, insert: close }], selection: { anchor: s + open.length, head: e + open.length }, userEvent: MD_ACTION_USER_EVENT });
+  };
 
   switch (action) {
     case "bold": wrapSel("**"); break;
