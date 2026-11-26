@@ -191,12 +191,12 @@ html[data-theme="light"][data-light-theme="github"] {
   /* 実バグ3の修正。var(--accent)(#0969DA)とvar(--accent-soft)(#DDF4FF)の実測
      コントラスト比は4.56:1でAA基準(4.5)を満たすため、var(--accent)のまま使う。 */
   --menu-hover-fg: var(--accent);
-  --code-kw: #D73A49;
-  --code-kw2: #D73A49;
+  --code-kw: #D03948;
+  --code-kw2: #D03948;
   --code-var: #005CC5;
   --code-fn: #6F42C1;
   --code-str: #032F62;
-  --code-num: #22863A;
+  --code-num: #228239;
   --code-cmt: #6A737D;
   --code-type: #6F42C1;
   --code-prop: #005CC5;
@@ -279,17 +279,17 @@ html[data-theme="light"][data-light-theme="solarized-light"] {
   /* 実バグ3の修正: var(--accent)(#268BD2)とvar(--accent-soft)(#E3EFFA)の実測
      コントラスト比は3.15:1でAA基準を割り込むため、var(--ink)へ補正する(実測11.14:1)。 */
   --menu-hover-fg: var(--ink);
-  --code-kw: #647300;
-  --code-kw2: #647300;
+  --code-kw: #5E6F04;
+  --code-kw2: #5E6F04;
   --code-var: #1D689E;
   --code-fn: #515593;
-  --code-str: #207972;
-  --code-num: #207972;
+  --code-str: #1E746E;
+  --code-num: #1E746E;
   /* コメントの色。元の配色の値では背景との差が足りず読めなかった(2026-11 の点検。
      コードブロックの --code-bg とコードモードの --paper の両方に対して 4.5:1 未満)。
      元の色相を保ったまま、両方に対して 4.5:1 以上になるところまで寄せた値。旧値: #657B83 */
   --code-cmt: #586B72;
-  --code-type: #886700;
+  --code-type: #806404;
   --code-prop: #1D689E;
   --code-op: var(--ink);
   --code-regex: #A52623;
@@ -360,7 +360,8 @@ html[data-theme="dark"][data-dark-theme="nord"] {
      AAを割り込みうるため.fix-contrast.mdと同じ方針で余裕を持たせた)。--ink-subは
      元々どちらもAAを満たすため変更しない。 */
   --ink-mute: color-mix(in srgb, var(--ink) 30%, #9AA5B1 70%);
-  --line: #434C5E;
+  /* 2026-11 の総点検2: 入力欄・ボタンの枠が面(--surface)と 1.17 しか無かったので、--ink-sub 寄りにして 2.57 にした */
+  --line: color-mix(in srgb, var(--ink-sub) 45%, var(--paper));
   --rule: #434C5E;
   --accent: #88C0D0;
   --accent-hover: #8FBCBB;
@@ -378,7 +379,7 @@ html[data-theme="dark"][data-dark-theme="nord"] {
   --code-var: #D8DEE9;
   --code-fn: #88C0D0;
   --code-str: #A3BE8C;
-  --code-num: #B48EAD;
+  --code-num: #B692AF;
   /* コメントの色。元の配色の値では背景との差が足りず読めなかった(2026-11 の点検。
      コードブロックの --code-bg とコードモードの --paper の両方に対して 4.5:1 未満)。
      元の色相を保ったまま、両方に対して 4.5:1 以上になるところまで寄せた値。旧値: #4C566A */
@@ -386,7 +387,7 @@ html[data-theme="dark"][data-dark-theme="nord"] {
   --code-type: #8FBCBB;
   --code-prop: #D8DEE9;
   --code-op: #81A1C1;
-  --code-regex: #CB7D85;
+  --code-regex: #CE8890;
   /* 依頼(ホバー強調色をテーマごとに個別実測): nordのvar(--accent)(#88C0D0、nord8の
      frost cyan)は--code-fnと同色で、コード中の関数名と紛れる懸念がある。Nord公式
      パレット(nordtheme.com)のnord13(aurora yellow、#EBCB8B)を転用する。寒色系で
@@ -549,7 +550,8 @@ html[data-theme="dark"][data-dark-theme="solarized-dark"] {
      理由で白へ55%だけcolor-mix()で寄せて補正する(補正後の実測: vs sidebar-bg
      6.84 / vs code-bg 8.99 / vs paper 7.90 / vs accent-soft 5.05)。 */
   --ink-mute: color-mix(in srgb, white 55%, #586E75 45%);
-  --line: #0A3C4A;
+  /* 2026-11 の総点検2: 入力欄・ボタンの枠が面(--surface)と 1.09 しか無く、ボタンが文字だけに見えたので --ink-sub 寄りにして 2.27 にした */
+  --line: color-mix(in srgb, var(--ink-sub) 45%, var(--paper));
   --rule: #0A3C4A;
   --accent: #268BD2;
   --accent-hover: #4CA6E0;
