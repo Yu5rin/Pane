@@ -46,7 +46,7 @@
 
 ```bash
 npm run build          # dist/ を作り直す（毎回まっさらから作る）
-npm run verify         # 回帰スイート76本・約3200件（JS側を触ったとき）
+npm run verify         # 回帰スイート75本・約3200件（JS側を触ったとき）
 dotnet test            # C#側のテスト（Pane/ を触ったとき）
 dotnet build Pane/Pane.csproj -c Release -p:EnableWindowsTargeting=true   # Linuxでもビルドは通る
 ```
